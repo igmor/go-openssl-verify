@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+
+	"github.com/igmor/go-openssl-verify/pkg/verify"
 )
 
 func main() {
@@ -31,16 +33,11 @@ func main() {
 	}
 
 	// Call Verify function with certs slice
-	err := Verify(certs)
+	err := verify.Verify(certs[0], []*x509.Certificate{certs[1]}, []*x509.Certificate{certs[2]})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error verifying certificates: %s\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Println("Certificates verified successfully")
-}
-
-func Verify(certs []*x509.Certificate) error {
-	// Implement certificate verification logic here
-	return nil
 }

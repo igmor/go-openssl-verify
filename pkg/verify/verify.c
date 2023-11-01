@@ -9,9 +9,9 @@
 #include <openssl/pem.h>
 #include "verify.h"
 
-extern BIO *bio_in;
-extern BIO *bio_out;
-extern BIO *bio_err;
+BIO *bio_in = NULL;
+BIO *bio_out = NULL;
+BIO *bio_err = NULL;
 
 static int v_verbose = 0, vflags = 0;
 
@@ -25,13 +25,48 @@ static X509* load_cert(const char* cert_buff)
         return cert;
 }
 
-static int verify(const char* cert_buff, const char* roots, int roots_lens[], const char* intermediates, int intermediates_lens[])
+static void nodes_print(const char *name, STACK_OF(X509_POLICY_NODE) *nodes)
+{
+    X509_POLICY_NODE *node;
+    int i;
+
+    BIO_printf(bio_err, "%s Policies:", name);
+    if (nodes) {
+        BIO_puts(bio_err, "\n");
+        for (i = 0; i < sk_X509_POLICY_NODE_num(nodes); i++) {
+            node = sk_X509_POLICY_NODE_value(nodes, i);
+            X509_POLICY_NODE_print(bio_err, node, 2);
+        }
+    } else {
+        BIO_puts(bio_err, " <empty>\n");
+    }
+}
+
+void policies_print(X509_STORE_CTX *ctx)
+{
+    X509_POLICY_TREE *tree;
+    int explicit_policy;
+
+    tree = X509_STORE_CTX_get0_policy_tree(ctx);
+    explicit_policy = X509_STORE_CTX_get_explicit_policy(ctx);
+
+    BIO_printf(bio_err, "Require explicit Policy: %s\n",
+               explicit_policy ? "True" : "False");
+
+    nodes_print("Authority", X509_policy_tree_get0_policies(tree));
+    nodes_print("User", X509_policy_tree_get0_user_policies(tree));
+}
+
+int check(X509_STORE *ctx, const char *cert,
+          STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain);
+
+int verify(void* cert_buff, int cert_len, void* roots, int roots_len, int roots_lens[], void* intermediates, int intermediates_len, int intermediates_lens[])
 {
     X509_STORE *ctx = NULL;
     STACK_OF(X509) *uchain = NULL, *tchain = NULL;
     int ret = 0;
 
-    ctx = setup_verify(roots, intermediates);
+    ctx = X509_STORE_new();
     if (ctx == NULL)
         goto end;
 
@@ -65,8 +100,8 @@ static int verify(const char* cert_buff, const char* roots, int roots_lens[], co
     return ret;
 }
 
-static int check(X509_STORE *ctx, const char *cert,
-                 STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain)
+int check(X509_STORE *ctx, const char *cert,
+          STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain)
 {
     X509 *x = NULL;
     int i = 0, ret = 0;
@@ -108,12 +143,12 @@ static int check(X509_STORE *ctx, const char *cert,
                 BIO_printf(bio_out, "depth=%d: ", j);
                 X509_NAME_print_ex_fp(stdout,
                                       X509_get_subject_name(cert),
-                                      0, get_nameopt());
+                                      0, XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_SEP_MULTILINE);
                 if (j < num_untrusted)
                     BIO_printf(bio_out, " (untrusted)");
                 BIO_printf(bio_out, "\n");
             }
-            OSSL_STACK_OF_X509_free(chain);
+            sk_X509_pop_free(chain, X509_free);
         }
     } else {
         BIO_printf(bio_err,
@@ -138,7 +173,7 @@ static int cb(int ok, X509_STORE_CTX *ctx)
         if (current_cert != NULL) {
             X509_NAME_print_ex(bio_err,
                             X509_get_subject_name(current_cert),
-                            0, get_nameopt());
+                            0, XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_SEP_MULTILINE);
             BIO_printf(bio_err, "\n");
         }
         BIO_printf(bio_err, "%serror %d at %d depth lookup: %s\n",
@@ -169,7 +204,6 @@ static int cb(int ok, X509_STORE_CTX *ctx)
         case X509_V_ERR_UNHANDLED_CRITICAL_EXTENSION:
             /* errors due to strict conformance checking (-x509_strict) */
         case X509_V_ERR_INVALID_PURPOSE:
-        /*
         case X509_V_ERR_PATHLEN_INVALID_FOR_NON_CA:
         case X509_V_ERR_PATHLEN_WITHOUT_KU_KEY_CERT_SIGN:
         case X509_V_ERR_CA_BCONS_NOT_CRITICAL:
@@ -185,7 +219,6 @@ static int cb(int ok, X509_STORE_CTX *ctx)
         case X509_V_ERR_MISSING_AUTHORITY_KEY_IDENTIFIER:
         case X509_V_ERR_MISSING_SUBJECT_KEY_IDENTIFIER:
         case X509_V_ERR_EXTENSIONS_REQUIRE_VERSION_3:
-        */
             ok = 1;
         }
         return ok;
