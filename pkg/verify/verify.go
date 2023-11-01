@@ -12,6 +12,7 @@ import (
 	"unsafe"
 )
 
+// Verify verifies the certificate chain
 func Verify(cert *x509.Certificate, roots []*x509.Certificate, intermediates []*x509.Certificate) (err error) {
 	total_roots_len := make([]C.int, 0, len(roots))
 	var root_bytes []byte
