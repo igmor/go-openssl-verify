@@ -15,10 +15,10 @@ BIO *bio_err = NULL;
 
 static int v_verbose = 0, vflags = 0;
 
-static X509* load_cert(const char* cert_buff)
+static X509* load_cert(void* cert_buff, int cert_len)
 {
         BIO *bio_mem = BIO_new(BIO_s_mem());
-        BIO_write(bio_mem, cert_buff, strlen(cert_buff));
+        BIO_write(bio_mem, cert_buff, cert_len);
         X509* cert = d2i_X509_bio(bio_mem, NULL);
         BIO_free(bio_mem);
 
@@ -57,10 +57,12 @@ void policies_print(X509_STORE_CTX *ctx)
     nodes_print("User", X509_policy_tree_get0_user_policies(tree));
 }
 
-int check(X509_STORE *ctx, const char *cert,
+int check(X509_STORE *ctx, void *cert, int cert_len,
           STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain);
 
-int verify(void* cert_buff, int cert_len, void* roots, int roots_len, int roots_lens[], void* intermediates, int intermediates_len, int intermediates_lens[])
+int verify(void* cert_buff, int cert_len,
+           void* roots, int roots_len, int roots_lens[], 
+           void* intermediates, int intermediates_len, int intermediates_lens[])
 {
     X509_STORE *ctx = NULL;
     STACK_OF(X509) *uchain = NULL, *tchain = NULL;
@@ -81,13 +83,25 @@ int verify(void* cert_buff, int cert_len, void* roots, int roots_len, int roots_
             BIO_printf(bio_err, "memory allocation failure\n");
             goto end;
         }
-        if (!sk_X509_push(uchain, load_cert(cert_buff))) {
+    }
+
+    // load root certs
+    for (int i = 0, root_offset = 0; i < roots_len; root_offset += roots_lens[i], i++) {
+        if (!sk_X509_push(tchain, load_cert(roots + root_offset, roots_lens[i]))) {
             BIO_printf(bio_err, "memory allocation failure\n");
             goto end;
         }
     }
 
-    ret = check(ctx, cert_buff, uchain, tchain, 1);
+    // load intermediate certs
+    for (int i = 0, intermediate_offset = 0; i < intermediates_len; intermediate_offset += intermediates_lens[i], i++) {
+        if (!sk_X509_push(uchain, load_cert(intermediates + intermediate_offset, intermediates_lens[i]))) {
+            BIO_printf(bio_err, "memory allocation failure\n");
+            goto end;
+        }
+    }
+
+    ret = check(ctx, cert_buff, cert_len, uchain, tchain, 1);
 
  end:
     if (ctx != NULL)
@@ -100,7 +114,7 @@ int verify(void* cert_buff, int cert_len, void* roots, int roots_len, int roots_
     return ret;
 }
 
-int check(X509_STORE *ctx, const char *cert,
+int check(X509_STORE *ctx, void *cert, int cert_len,
           STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain)
 {
     X509 *x = NULL;
@@ -109,7 +123,7 @@ int check(X509_STORE *ctx, const char *cert,
     STACK_OF(X509) *chain = NULL;
     int num_untrusted;
 
-    x = load_cert(cert);
+    x = load_cert(cert, cert_len);
     if (x == NULL)
         goto end;
 

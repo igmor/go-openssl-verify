@@ -14,14 +14,14 @@ import (
 
 // Verify verifies the certificate chain
 func Verify(cert *x509.Certificate, roots []*x509.Certificate, intermediates []*x509.Certificate) (err error) {
-	total_roots_len := make([]C.int, 0, len(roots))
+	total_roots_len := make([]C.int, len(roots))
 	var root_bytes []byte
 	for i, root := range roots {
 		total_roots_len[i] = C.int(len(root.Raw))
 		root_bytes = append(root_bytes, root.Raw...)
 	}
 
-	total_intermediates_len := make([]C.int, 0, len(intermediates))
+	total_intermediates_len := make([]C.int, len(intermediates))
 	var intermediates_bytes []byte
 	for i, intermediate := range intermediates {
 		total_intermediates_len[i] = C.int(len(intermediate.Raw))
