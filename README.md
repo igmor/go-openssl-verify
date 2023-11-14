@@ -12,15 +12,15 @@ Golang x509 supports a subset of x509 standard, ie:
 // constraints.
 ```
 
-The library allows to bring a wider x509 support into GOLang ecosystem. 
+The library allows us to bring a wider x509 support into the Go ecosystem. 
 
 To verify certificates one would need to call this function
 
 ```
-err, out, err := Verify(cert, []*x509.Certificate{rootCert}, []*x509.Certificate{IntermediateCert})
+err, out_stream, err_stream := Verify(cert, []*x509.Certificate{rootCert}, []*x509.Certificate{IntermediateCert})
 ```
 
-err, bout and berr will be an error, output and error buffers from openssl x509 verify function.
+err, out_stream and err_stream will be an error, output, and error buffers from openssl x509 verify function.
 
 # Openssl
 
