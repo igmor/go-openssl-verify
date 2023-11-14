@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/igmor/go-openssl-verify/pkg/verify"
@@ -17,7 +16,7 @@ func main() {
 
 	var certs []*x509.Certificate
 	for _, filename := range os.Args[1:] {
-		pemData, err := ioutil.ReadFile(filename)
+		pemData, err := os.ReadFile(filename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading %s: %s\n", filename, err)
 			os.Exit(1)
@@ -33,11 +32,14 @@ func main() {
 	}
 
 	// Call Verify function with certs slice
-	err := verify.Verify(certs[0], []*x509.Certificate{certs[1]}, []*x509.Certificate{certs[2]})
+	err, bout, berr := verify.Verify(certs[0], []*x509.Certificate{certs[1]}, []*x509.Certificate{certs[2]})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error verifying certificates: %s\n", err)
+		fmt.Fprintf(os.Stderr, string(berr))
+
 		os.Exit(1)
 	}
 
 	fmt.Println("Certificates verified successfully")
+	fmt.Println(string(bout))
 }

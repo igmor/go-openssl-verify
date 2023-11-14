@@ -12,8 +12,6 @@ import (
 	"unsafe"
 )
 
-const BioBufferSize = 16 * 1024
-
 // Verify verifies the certificate chain
 func Verify(cert *x509.Certificate, roots []*x509.Certificate, intermediates []*x509.Certificate) (err error, bio_out []byte, bio_err []byte) {
 	total_roots_len := make([]C.int, len(roots))
