@@ -29,4 +29,6 @@ The library relies on openssl headers and libraries at the following locations:
 CFLAGS: `-I/usr/local/include`
 LDFLAGS: `-L/usr/local/lib -lssl -lcrypt`
 
+The current version was built and tested with Openssl 3.1.4
+
 Enjoy!
