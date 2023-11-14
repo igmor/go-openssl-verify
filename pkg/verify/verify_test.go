@@ -110,6 +110,28 @@ func GenServerCert(DCACert *x509.Certificate, DCAKey *rsa.PrivateKey) (*x509.Cer
 
 }
 
+func GenExpiredServerCert(DCACert *x509.Certificate, DCAKey *rsa.PrivateKey) (*x509.Certificate, []byte, *rsa.PrivateKey) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+
+	var ServerTemplate = x509.Certificate{
+		SerialNumber:   big.NewInt(1),
+		NotBefore:      time.Now().Add(-10 * time.Second),
+		NotAfter:       time.Now().Add(-5 * time.Second),
+		KeyUsage:       x509.KeyUsageCRLSign,
+		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IsCA:           false,
+		MaxPathLenZero: true,
+		IPAddresses:    []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	ServerCert, ServerPEM := genCert(&ServerTemplate, DCACert, &priv.PublicKey, DCAKey)
+	return ServerCert, ServerPEM, priv
+
+}
+
 func main() {
 	rootCert, rootCertPEM, rootKey := GenCARoot()
 	fmt.Println("rootCert\n", string(rootCertPEM))
@@ -150,12 +172,29 @@ func verifyLow(root, DCA, child *x509.Certificate) {
 	fmt.Println("Low Verified")
 }
 
-func TestVerify(t *testing.T) {
+func TestVerifyOK(t *testing.T) {
 	rootCert, _, rootKey := GenCARoot()
 	DCACert, _, DCAKey := GenDCA(rootCert, rootKey)
 	ServerCert, _, _ := GenServerCert(DCACert, DCAKey)
 
-	err := Verify(ServerCert, []*x509.Certificate{rootCert}, []*x509.Certificate{DCACert})
+	err, bout, berr := Verify(ServerCert, []*x509.Certificate{rootCert}, []*x509.Certificate{DCACert})
+
+	fmt.Println(string(bout))
+	fmt.Println(string(berr))
 
 	assert.NoError(t, err)
+}
+
+func TestVerifyExpired(t *testing.T) {
+	rootCert, _, rootKey := GenCARoot()
+	DCACert, _, DCAKey := GenDCA(rootCert, rootKey)
+	ServerCert, _, _ := GenExpiredServerCert(DCACert, DCAKey)
+
+	err, bout, berr := Verify(ServerCert, []*x509.Certificate{rootCert}, []*x509.Certificate{DCACert})
+
+	fmt.Println(string(bout))
+	fmt.Println(string(berr))
+
+	assert.Error(t, err)
+	assert.Contains(t, string(berr), "expired")
 }

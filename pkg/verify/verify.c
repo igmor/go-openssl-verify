@@ -9,9 +9,10 @@
 #include <openssl/pem.h>
 #include "verify.h"
 
-BIO *bio_in = NULL;
-BIO *bio_out = NULL;
-BIO *bio_err = NULL;
+typedef struct _BIOContext {
+    BIO *bio_out;
+    BIO *bio_err;
+} BIOContext;
 
 static int v_verbose = 0, vflags = 0;
 
@@ -25,24 +26,24 @@ static X509* load_cert(void* cert_buff, int cert_len)
         return cert;
 }
 
-static void nodes_print(const char *name, STACK_OF(X509_POLICY_NODE) *nodes)
+static void nodes_print(BIOContext *bio_ctx, const char *name, STACK_OF(X509_POLICY_NODE) *nodes)
 {
     X509_POLICY_NODE *node;
     int i;
 
-    BIO_printf(bio_err, "%s Policies:", name);
+    BIO_printf(bio_ctx->bio_err, "%s Policies:", name);
     if (nodes) {
-        BIO_puts(bio_err, "\n");
+        BIO_puts(bio_ctx->bio_err, "\n");
         for (i = 0; i < sk_X509_POLICY_NODE_num(nodes); i++) {
             node = sk_X509_POLICY_NODE_value(nodes, i);
-            X509_POLICY_NODE_print(bio_err, node, 2);
+            X509_POLICY_NODE_print(bio_ctx->bio_err, node, 2);
         }
     } else {
-        BIO_puts(bio_err, " <empty>\n");
+        BIO_puts(bio_ctx->bio_err, " <empty>\n");
     }
 }
 
-void policies_print(X509_STORE_CTX *ctx)
+void policies_print(X509_STORE_CTX *ctx, BIOContext* bio_ctx)
 {
     X509_POLICY_TREE *tree;
     int explicit_policy;
@@ -50,19 +51,21 @@ void policies_print(X509_STORE_CTX *ctx)
     tree = X509_STORE_CTX_get0_policy_tree(ctx);
     explicit_policy = X509_STORE_CTX_get_explicit_policy(ctx);
 
-    BIO_printf(bio_err, "Require explicit Policy: %s\n",
+    BIO_printf(bio_ctx->bio_err, "Require explicit Policy: %s\n",
                explicit_policy ? "True" : "False");
 
-    nodes_print("Authority", X509_policy_tree_get0_policies(tree));
-    nodes_print("User", X509_policy_tree_get0_user_policies(tree));
+    nodes_print(bio_ctx, "Authority", X509_policy_tree_get0_policies(tree));
+    nodes_print(bio_ctx, "User", X509_policy_tree_get0_user_policies(tree));
 }
 
-int check(X509_STORE *ctx, void *cert, int cert_len,
+int check(X509_STORE *ctx, BIOContext* bio_ctx, void *cert, int cert_len,
           STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain);
+
+static int cb(int ok, X509_STORE_CTX *ctx, BIOContext* bio_ctx);
 
 int verify(void* cert_buff, int cert_len,
            void* roots, int roots_len, int roots_lens[], 
-           void* intermediates, int intermediates_len, int intermediates_lens[])
+           void* intermediates, int intermediates_len, int intermediates_lens[], void* bio_out, void* bio_err)
 {
     X509_STORE *ctx = NULL;
     STACK_OF(X509) *uchain = NULL, *tchain = NULL;
@@ -72,36 +75,40 @@ int verify(void* cert_buff, int cert_len,
     if (ctx == NULL)
         goto end;
 
+    BIOContext bio_ctx;
+    bio_ctx.bio_out = bio_out;
+    bio_ctx.bio_err = bio_err;
+
     if (cert_buff != NULL) {
         uchain = sk_X509_new_null();
         if (uchain == NULL) {
-            BIO_printf(bio_err, "memory allocation failure\n");
+            BIO_printf(bio_ctx.bio_err, "memory allocation failure\n");
             goto end;
         }
         tchain = sk_X509_new_null();
         if (tchain == NULL) {
-            BIO_printf(bio_err, "memory allocation failure\n");
+            BIO_printf(bio_ctx.bio_err, "memory allocation failure\n");
             goto end;
         }
     }
 
-    // load root certs
+    // trust root certs
     for (int i = 0, root_offset = 0; i < roots_len; root_offset += roots_lens[i], i++) {
         if (!sk_X509_push(tchain, load_cert(roots + root_offset, roots_lens[i]))) {
-            BIO_printf(bio_err, "memory allocation failure\n");
+            BIO_printf(bio_ctx.bio_err, "memory allocation failure\n");
             goto end;
         }
     }
 
-    // load intermediate certs
+    // don't trust intermediate certs
     for (int i = 0, intermediate_offset = 0; i < intermediates_len; intermediate_offset += intermediates_lens[i], i++) {
         if (!sk_X509_push(uchain, load_cert(intermediates + intermediate_offset, intermediates_lens[i]))) {
-            BIO_printf(bio_err, "memory allocation failure\n");
+            BIO_printf(bio_ctx.bio_err, "memory allocation failure\n");
             goto end;
         }
     }
 
-    ret = check(ctx, cert_buff, cert_len, uchain, tchain, 1);
+    ret = check(ctx, &bio_ctx, cert_buff, cert_len, uchain, tchain, 1);
 
  end:
     if (ctx != NULL)
@@ -114,7 +121,7 @@ int verify(void* cert_buff, int cert_len,
     return ret;
 }
 
-int check(X509_STORE *ctx, void *cert, int cert_len,
+int check(X509_STORE *ctx, BIOContext *bio_ctx, void *cert, int cert_len,
           STACK_OF(X509) *uchain, STACK_OF(X509) *tchain, int show_chain)
 {
     X509 *x = NULL;
@@ -129,14 +136,14 @@ int check(X509_STORE *ctx, void *cert, int cert_len,
 
     csc = X509_STORE_CTX_new();
     if (csc == NULL) {
-        BIO_printf(bio_err, "error %s: X.509 store context allocation failed\n");
+        BIO_printf(bio_ctx->bio_err, "error %s: X.509 store context allocation failed\n");
         goto end;
     }
 
     X509_STORE_set_flags(ctx, vflags);
     if (!X509_STORE_CTX_init(csc, ctx, x, uchain)) {
         X509_STORE_CTX_free(csc);
-        BIO_printf(bio_err,
+        BIO_printf(bio_ctx->bio_err,
                    "error %s: X.509 store context initialization failed\n");
         goto end;
     }
@@ -144,53 +151,54 @@ int check(X509_STORE *ctx, void *cert, int cert_len,
         X509_STORE_CTX_set0_trusted_stack(csc, tchain);
     i = X509_verify_cert(csc);
     if (i > 0 && X509_STORE_CTX_get_error(csc) == X509_V_OK) {
-        BIO_printf(bio_out, " OK\n");
+        BIO_printf(bio_ctx->bio_out, " OK\n");
         ret = 1;
         if (show_chain) {
             int j;
 
             chain = X509_STORE_CTX_get1_chain(csc);
             num_untrusted = X509_STORE_CTX_get_num_untrusted(csc);
-            BIO_printf(bio_out, "Chain:\n");
+            BIO_printf(bio_ctx->bio_out, "Chain:\n");
             for (j = 0; j < sk_X509_num(chain); j++) {
                 X509 *cert = sk_X509_value(chain, j);
-                BIO_printf(bio_out, "depth=%d: ", j);
+                BIO_printf(bio_ctx->bio_out, "depth=%d: ", j);
                 X509_NAME_print_ex_fp(stdout,
                                       X509_get_subject_name(cert),
                                       0, XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_SEP_MULTILINE);
                 if (j < num_untrusted)
-                    BIO_printf(bio_out, " (untrusted)");
-                BIO_printf(bio_out, "\n");
+                    BIO_printf(bio_ctx->bio_out, " (untrusted)");
+                BIO_printf(bio_ctx->bio_out, "\n");
             }
             sk_X509_pop_free(chain, X509_free);
         }
     } else {
-        BIO_printf(bio_err,
+        BIO_printf(bio_ctx->bio_err,
                    "error : verification failed\n");
+        cb(i, csc, bio_ctx);
     }
     X509_STORE_CTX_free(csc);
 
  end:
     if (i <= 0)
-        ERR_print_errors(bio_err);
+        ERR_print_errors(bio_ctx->bio_err);
     X509_free(x);
 
     return ret;
 }
 
-static int cb(int ok, X509_STORE_CTX *ctx)
+static int cb(int ok, X509_STORE_CTX *ctx, BIOContext* bio_ctx)
 {
     int cert_error = X509_STORE_CTX_get_error(ctx);
     X509 *current_cert = X509_STORE_CTX_get_current_cert(ctx);
 
     if (!ok) {
         if (current_cert != NULL) {
-            X509_NAME_print_ex(bio_err,
+            X509_NAME_print_ex(bio_ctx->bio_err,
                             X509_get_subject_name(current_cert),
                             0, XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_SEP_MULTILINE);
-            BIO_printf(bio_err, "\n");
+            BIO_printf(bio_ctx->bio_err, "\n");
         }
-        BIO_printf(bio_err, "%serror %d at %d depth lookup: %s\n",
+        BIO_printf(bio_ctx->bio_err, "%serror %d at %d depth lookup: %s\n",
                X509_STORE_CTX_get0_parent_ctx(ctx) ? "[CRL path] " : "",
                cert_error,
                X509_STORE_CTX_get_error_depth(ctx),
@@ -204,7 +212,7 @@ static int cb(int ok, X509_STORE_CTX *ctx)
          */
         switch (cert_error) {
         case X509_V_ERR_NO_EXPLICIT_POLICY:
-            policies_print(ctx);
+            policies_print(ctx, bio_ctx);
             /* fall through */
         case X509_V_ERR_CERT_HAS_EXPIRED:
             /* Continue even if the leaf is a self-signed cert */
@@ -239,8 +247,6 @@ static int cb(int ok, X509_STORE_CTX *ctx)
 
     }
     if (cert_error == X509_V_OK && ok == 2)
-        policies_print(ctx);
-    if (!v_verbose)
-        ERR_clear_error();
+        policies_print(ctx, bio_ctx);
     return ok;
 }
