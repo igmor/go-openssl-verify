@@ -17,7 +17,7 @@ The library allows to bring a wider x509 support into GOLang ecosystem.
 To verify certificates one would need to call this function
 
 ```
-	err, bout, berr := Verify(cert, []*x509.Certificate{rootCert}, []*x509.Certificate{IntermediateCert})
+err, bout, berr := Verify(cert, []*x509.Certificate{rootCert}, []*x509.Certificate{IntermediateCert})
 ```
 
 err, bout and berr will be an error, output and error buffers from openssl x509 verify function.
