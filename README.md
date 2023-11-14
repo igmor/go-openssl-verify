@@ -31,4 +31,21 @@ LDFLAGS: `-L/usr/local/lib -lssl -lcrypt`
 
 The current version was built and tested with Openssl 3.1.4
 
+# Using a command line
+
+```
+./go-openssl-verify verify --cert scripts/leaf.pem --untrusted scripts/intermediate.pem --trusted scripts/root.pem 
+```
+
+Output when the chain is trusted:
+
+```
+Certificates verified successfully
+ OK
+Chain:
+depth=0:  (untrusted)
+depth=1:  (untrusted)
+depth=2: 
+```
+
 Enjoy!
